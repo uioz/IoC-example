@@ -55,6 +55,23 @@ const container = awilix.createContainer({
 ```typescript
 const { asClass, asFunction, asValue } = awilix
 
+const db = new Datebase() // 假设存在 Database 对象
+
+class mailService {
+
+}
+
+/**
+ * 这里的函数使用的是闭包的形式.  
+ * 最外层的函数接收的是依赖.  
+ * 返回的函数可以利用闭包引用 db 又可以通过调用来接收 userName.
+ */
+function getUserInfo({db}){
+  return async function (userName){
+    return db.find({name:userName})
+  }
+}
+
 // register 接收一个对象
 // 键名称就是被注册内容的名称
 // 对应的值就是注册的内容
@@ -77,7 +94,11 @@ container.register({
       // 具体含义查看下一节
       lifetime:Lifetime.SINGLETON
     }
-  )
+  ),
+  // asValue 告诉 awilix 他是一个值(对象)
+  db:asValue(db),
+  // asFunction 告诉 awilix 他是一个函数
+  getUserInfo:asFunction(getUserInfo)
 })
 ```
 
@@ -119,6 +140,166 @@ SingletonService created
 ScopedService created!
 ```
 
-这说明使用了 `scoped` 选项的依赖在容器本体或者作用域容器中解析的内容会被缓存, 而单例则无论是否在镜像中一律缓存.
+这说明使用了 `scoped` 选项的依赖一旦在容器中解析就会被缓存解析结果, 而单例则无论是否在镜像容器中均为解析完成后缓存.
 
+## 解析
 
+试想一个容器上已经注册了多个模块, 现在我们要执行其中一个.  
+```typescript
+container.resolve('getUserInfo'); // getUserInfo 就是我们通过 container.register 注册的模块名称.
+```
+
+那么所谓的依赖注入的实现 `awilix` 为我们做了什么了呢.  
+当我们告诉容器解析 `getUserInfo` 模块的时候, 实际上要的是解析的结果.  
+
+容器会解析 `getUserInfo` 去发现它需要什么依赖, 然后再去解析依赖, 当然依然的内容也是注册的模块也遵循上面的工作模式.  
+
+当依赖完全解析后会将依赖注入, 如果我们解析的模块是一个类, 他会将依赖实例化的过程中通过构造函数将依赖进行注入. 如果解析的是函数则会调用函数并传入依赖的内容. 然后返回它们执行的结果.  
+
+这也是为什么对于函数模块使用闭包的原因, 第一层的函数是专门用于接收依赖的, 返回的函数才是真正的函数模块, 可以接收外部传入的变量:
+```typescript
+container.register({
+  test:asFunction(function test(db){
+    return async function (userName){
+      return db.find({user:userName})
+    }
+  })
+})
+
+// 完成依赖的注入
+const test = container.resolve('test');
+// 外部传入变量
+const userInfo = await test('Mr hello');
+```
+
+另外 `awilix.container` 还提供了一个代理属性:
+```typescript
+const resolved = container.cradle.xxxx
+```
+
+通过 `cradle.xxxx` 可以获取对应名称注册的模块而不必使用 `container.resolve('xxxx')` 来获取解析的内容.  
+
+## 自动加载
+
+手动注册模块在工程化的项目中显然是不现实的, 无论如何你都会简化这一步骤.  
+
+`awilix` 直接提供了这个能力, 允许你从某个本地的目录中加载这些模块, 或者说自动注册这些模块.  
+
+这就需要一个模块单独的存放到一个文件中, 通过默认导出 `awilix` 就可以自动加载它们, 理想的状态下就是建立一个目录, 然后将有关的模块放入其中然后自动加载, 文件的名称就是模块的名称, 所以建议文件名称是驼峰格式.  
+当然也存在多个模块存放到一个文件中的情况, 但是这里不讨论这种情况.  
+
+加载的 API 是 `container.loadModules` 该方法第一个参数是数组提供有关模块的信息, 第二个参数是一个对象提供加载的一些选项.  
+```typescript
+// Load our modules!
+container.loadModules([
+  // Globs!
+  [
+    // 通过嵌套数组的格式我们可以为一组 Globs 添加更加明确的解析选项
+    'models/**/*.js',
+    {
+      register: awilix.asValue,
+      lifetime: Lifetime.SINGLETON
+    }
+  ],
+  // 这些 Globs 就会使用默认的选项解析
+  // 当然你可以在模块中指定解析选项, 但是这些内容不在我们的讨论范围内
+  'services/**/*.js',
+  'repositories/**/*.js'
+],
+// 第二个参数指示如何解析
+  {
+    // 模块格式化方式
+    formatName: 'camelCase',
+    // 对于这次解析的解析选项
+    resolverOptions: {
+      lifetime: Lifetime.SINGLETON,
+      // 告诉 awilix 这些注册的模块是 Class 还是 function 还是 value, 否则 awilix 就会进行自动猜测
+      register: awilix.asClass
+    }
+  }
+)
+```
+
+# awilix-express
+
+`awilix-express` 实际上就是一个工具类的集合, 利用它可以简单的将 `express` 和 `awilix` 进行结合.
+
+如何结合呢? `awilix-express` 提供了控制器(controller), 没错就是 MVC 中的 C 层. 
+
+对于很多专职的后端人员对于控制器概念相比是熟记于心了, 但是对于我这个连基本概念都不了解的人来说, 这才刚刚开始.    
+
+这里还是扯几句, 对于 MVC 结构来讲, 各层主要负责各自的功能.
+- model 数据层 基本上就是一些类, 每一个类上存在一些方法, 这些方法去操作数据库. 每一个类都是一个独立的单元, 而这个单元提供不同的方法操作哪些针对这个单元所管辖的数据. 从抽象角度来看, 有关数据的操作都被封装到了一系列类中, 其他位置获取数据就可以不操作数据库来获取数据, 降低了数据库与其他模块的耦合.  
+- view 视图层, 非常简单就是将给定的数据映射到对应的字符串给定的占位符上, 然后完成一系列字符串拼接后返回拼接的结果.  
+- controller model 只关心数据, view 只关心视图, 但是一次完整的请求基本都是读取/修改数据后填入到 view 层中然后将 view 数据返回. 所以 controller 就是 model 和 view 之间的胶水, 也是一次请求进入到服务器代码中的第一道关卡.
+
+`typescript` 提供了装饰器语法的支持, 对于前端来说这样的写法可能有些诡异, 但是这里没有什么魔法, 它们非常简单, 下面给出了一个 controller 的写法:
+```typescript
+import bodyParser from 'body-parser'
+import { authenticate } from './your-auth-middleware'
+import { route, GET, POST, before } from 'awilix-express' // or `awilix-router-core`
+ 
+@route('/users')
+export default class UserAPI {
+  constructor({ userService }) {
+    this.userService = userService
+  }
+ 
+  @route('/:id')
+  @GET()
+  @before([authenticate()])
+  async getUser(req, res) {
+    res.send(await this.userService.get(req.params.id))
+  }
+ 
+  @POST()
+  @before([bodyParser()])
+  async createUser(req, res) {
+    res.send(await this.userService.create(req.body))
+  }
+}
+```
+
+要了解这段代码做了什么, 首先要知道这个类也是一个要被 `awilix` 加载的模块, 所以在构造函数中它依赖了一个 userService.  
+
+而所提供的两个方法 `getUser` 和 `createUser` 的格式基本就是 `express` 上的中间件语法. 这意味着你可以在这里获取用户传递的信息然后处理信息然后响应一些数据.  
+
+你可以看到上上述的两个方法中使用了注入的 `userService` 然后利用 `userService` 操作数据后响应给用户. 没错这里的 `userService` 实际上就是 model, 只不过这里并未出现 view 而已.  
+
+接下来看有关装饰器语法的部分, `@route('/users')` 表示该类所匹配的路由地址, 而 `getUser` 的 `@route('/:id')` 则进一步的限制了该方法被生效的范围.  
+
+而 `@GET()` 与 `@POST()` 则表示该方法匹配的 http method 也就是说, `GET /users/123` 会调用 `getUser` 方法而 `POST /uesrs/123` 不会, `POST /users` 会调用 `createUser` 方法.  
+
+`@before([bodyParser()])` 允许你在执行这个方法之前执行一些给定的中间件.
+
+## 加载控制器
+
+在我们了解完成控制器的基本概念后, 现在我们来看看如何使用控制器:
+```typescript
+import Express from 'express'
+import { loadControllers } from 'awilix-express'
+ 
+const app = Express()
+
+app.use(loadControllers('routes/*.js', { cwd: __dirname }))
+ 
+app.listen(3000)
+```
+我想你也猜到了 `loadControllers` 调用后会返回一个函数而他的作用利用本次请求的地址去匹配对于地址的控制器, 而控制器本质上就是一个模块, 在路由可以完全匹配到控制器上的方法后, `awilix` 会去解析依赖注入然后调用对应的方法.  
+
+控制器中的依赖怎么办如何注入, 不用担心问题已经解决, 通过 `awilix-express` 模块:
+```typescript
+import Express from 'express'
+import { asClass, createContainer } from 'awilix'
+import { loadControllers, scopePerRequest } from 'awilix-express'
+ 
+const app = Express()
+const container = createContainer().loadModules([/** 依赖的模块 */])
+
+// scopePerRequest 会为每次请求创建这个容器的拷贝, 确保每一次请求都由独立的上下文(允许缓存的除外)
+app.use(scopePerRequest(container))
+
+app.use(loadControllers('routes/*.js', { cwd: __dirname }))
+ 
+app.listen(3000)
+```
