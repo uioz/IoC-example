@@ -3,13 +3,14 @@
     "lib": [
       "ESNext"
     ],
+    "moduleResolution": "Node",
+    "module": "CommonJS",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "outDir": "./dist",
     "target": "ESNext",
     "watch": true,
-    "module": "CommonJS",
-    "sourceMap": true
+    // "sourceMap": true
   },
   "files": [
     "src/index.ts"

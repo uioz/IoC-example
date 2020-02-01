@@ -1,34 +1,15 @@
-import * as express from 'express';
-import { createContainer, Lifetime, asValue } from 'awilix';
-import { loadControllers, scopePerRequest } from 'awilix-express';
+import { Container } from "inversify";
+import { TYPES } from "./types";
+import { Warrior, Weapon, ThrowableWeapon } from "./interfaces";
+import { Ninja, Katana, Shuriken } from "./entities";
+import { equal } from "assert";
 
-const app = express()
+const myContainer = new Container();
+myContainer.bind<Warrior>(TYPES.Warrior).to(Ninja);
+myContainer.bind<Weapon>(TYPES.Weapon).to(Katana);
+myContainer.bind<ThrowableWeapon>(TYPES.ThrowableWeapon).to(Shuriken);
 
-const container = createContainer();
+const ninja = myContainer.get<Warrior>(TYPES.Warrior);
 
-container.loadModules(
-  [
-    [__dirname + '/services/**/*.js', {
-      lifetime: Lifetime.SCOPED
-    }]
-  ]
-);
-
-app.use(scopePerRequest(container));
-
-
-app.use((request, response, next) => {
-
-  request.container.register({
-    url: asValue(request.url)
-  });
-
-  return next();
-
-});
-
-app.use(loadControllers(__dirname + '/routes/**/*.js'));
-
-app.listen(3000, () => {
-  console.log("server running in 3000 port")
-})
+console.log(equal(ninja.fight(), 'cut'),'ok');
+console.log(equal(ninja.sneak(), 'hit!'),'ok');
