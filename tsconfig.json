@@ -10,7 +10,7 @@
     "outDir": "./dist",
     "target": "ESNext",
     "watch": true,
-    // "sourceMap": true
+    "sourceMap": true
   },
   "files": [
     "src/index.ts"

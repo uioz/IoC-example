@@ -4,12 +4,13 @@ import { Warrior, Weapon, ThrowableWeapon } from "./interfaces";
 import { Ninja, Katana, Shuriken } from "./entities";
 import { equal } from "assert";
 
-const myContainer = new Container();
-myContainer.bind<Warrior>(TYPES.Warrior).to(Ninja);
-myContainer.bind<Weapon>(TYPES.Weapon).to(Katana);
-myContainer.bind<ThrowableWeapon>(TYPES.ThrowableWeapon).to(Shuriken);
+const myContainer = new Container({
+  autoBindInjectable:true,
+  defaultScope:'Singleton'
+});
 
-const ninja = myContainer.get<Warrior>(TYPES.Warrior);
+const ninja = myContainer.get(Ninja);
 
-console.log(equal(ninja.fight(), 'cut'),'ok');
-console.log(equal(ninja.sneak(), 'hit!'),'ok');
+
+equal(ninja.fight(), 'cut')
+equal(ninja.sneak(), 'hit!')
